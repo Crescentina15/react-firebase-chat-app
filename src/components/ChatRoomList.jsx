@@ -1,72 +1,84 @@
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom';
-import { db } from '../configs/firebase'
-import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from 'firebase/firestore'
+import { useEffect, useState } from 'react';
+import { db, storage } from '../configs/firebase';
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 function ChatRoomList() {
-  const [list, setList] = useState([]) // State to store the chat room list
-  const [title, setTitle] = useState('') // State to store the input field value
+  const [posts, setPosts] = useState([]); // State to store the list of posts
+  const [text, setText] = useState(''); // State to store the text input
+  const [image, setImage] = useState(null); // State to store the selected image file
 
-  const listCollection = collection(db, 'chat_room') // Reference to the 'chat_room' collection in Firestore
+  const postsCollection = collection(db, 'posts'); // Reference to the 'posts' collection in Firestore
 
   useEffect(() => {
-    getList() // Fetch the chat room list on component mount
-  }, [])
+    getPosts(); // Fetch the list of posts on component mount
+  }, []);
 
-  const getList = async () => {
+  const getPosts = async () => {
     try {
-      // Subscribe to real-time updates on the chat room collection, ordered by timestamp in descending order
-      const unsubscribe = onSnapshot(query(listCollection, orderBy('timestamp', 'desc')), (snapshot) => {
+      // Subscribe to real-time updates on the posts collection, ordered by timestamp in descending order
+      const unsubscribe = onSnapshot(query(postsCollection, orderBy('timestamp', 'desc')), (snapshot) => {
         // Map the document data and add an 'id' property to each document
-        const updatedList = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }))
-        setList(updatedList) // Update the chat room list state with the updated data
-      })
-      return () => unsubscribe() // Unsubscribe from real-time updates when the component unmounts
+        const updatedPosts = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+        setPosts(updatedPosts); // Update the posts state with the updated data
+      });
+      return () => unsubscribe(); // Unsubscribe from real-time updates when the component unmounts
     } catch (error) {
-      console.error(error)
+      console.error(error);
     }
-  }
+  };
 
-  const save = async () => {
+  const savePost = async () => {
     try {
-      if (title.trim() === '') {
-        return // If the title is empty or contains only whitespace, do not save
+      if (text.trim() === '') {
+        return; // If the text is empty or contains only whitespace, do not save
       }
 
-      // Add a new document to the chat room collection with the provided title and server timestamp
-      await addDoc(listCollection, {
-        title,
-        timestamp: serverTimestamp()
-      })
+      let imageUrl = null;
+      if (image) {
+        const storageRef = ref(storage, `images/${Date.now()}_${image.name}`);
+        await uploadBytes(storageRef, image);
+        imageUrl = await getDownloadURL(storageRef);
+      }
 
-      setTitle('') // Clear the input field after saving
+      // Add a new document to the posts collection with the provided text, image URL, and server timestamp
+      await addDoc(postsCollection, {
+        text,
+        imageUrl,
+        timestamp: serverTimestamp(),
+      });
+
+      setText(''); // Clear the text input field after saving
+      setImage(null); // Clear the image file after saving
     } catch (error) {
-      console.error(error)
+      console.error(error);
     }
-  }
+  };
 
   return (
     <>
-      <h1>Chat Room List</h1>
+      <h1>Post List</h1>
       <input
         type='text'
-        placeholder='Title'
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
+        placeholder='Text'
+        value={text}
+        onChange={(e) => setText(e.target.value)}
       />
-      <button onClick={save}>Save</button>
-      {
-        list.map((item, index) => (
-          item.timestamp ? <div key={index}>
-            <Link to={`/chat/${item.id}`}>
-              <h3>{item.title}</h3>
-            </Link>
-            <p>{item.timestamp?.toDate().toLocaleString()}</p>
-          </div> : null
-        ))
-      }
+      <input
+        type='file'
+        accept='image/'
+        onChange={(e) => setImage(e.target.files[0])}
+      />
+      <button onClick={savePost}>Save</button>
+      {posts.map((post, index) => (
+        <div key={index}>
+          <h3>{post.text}</h3>
+          {post.imageUrl && <img src={post.imageUrl} alt='Post' style={{ maxWidth: '100px' }} />}
+          <p>{post.timestamp?.toDate().toLocaleString()}</p>
+        </div>
+      ))}
     </>
-  )
+  );
 }
 
 export default ChatRoomList;
